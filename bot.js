@@ -24,7 +24,7 @@ client.on("ready", async () => {
   console.log("🚀 Bot ativo e pronto!");
   const token = process.env.TOKEN_API;
   //await executarRotinaEnvios(token);
-  //await executarRotinaCompleta(token);
+  await executarRotinaCompleta(token);
   //await executarRotinaComercial(token);
   //await executarRotinaFeed(token);
   //await executarRotinaAgenda(token);

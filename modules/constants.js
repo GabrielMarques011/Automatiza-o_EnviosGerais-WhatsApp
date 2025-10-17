@@ -1,7 +1,7 @@
 export const BASE_URL = process.env.URL_IXC;
 export const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID_BONIFICACAO;
 
-export const IDS_TECNICOS = [345, 359, 337, 313, 367, 377, 307, 306, 386, 387, 389, 390];
+export const IDS_TECNICOS = [345, 359, 337, 313, 367, 377, 307, 306, 386, 387, 389, 390, 381];
 export const FUNCIONARIOS_MAP = {
   345: "João Miyake",
   359: "Pedro Henrique",
@@ -14,10 +14,11 @@ export const FUNCIONARIOS_MAP = {
   386: "Gabriel Lima",
   387: "Kayky Cabral",
   389: "Marcos Piazzi",
-  390: "Pedro Guedes"
+  390: "Pedro Guedes",
+  381: "Lucca Ramos"
 };
 
-export const IDS_USUARIOS_RETENCAO = [278, 287, 245, 323, 320, 327, 236, 235, 302, 386, 387, 389, 390];
+export const IDS_USUARIOS_RETENCAO = [278, 287, 245, 323, 320, 327, 236, 235, 302, 386, 387, 389, 390, 381];
 export const FUNCIONARIOS_RETENCAO = {
   278: 'Alison da Silva',
   287: 'João Miyake',
@@ -31,7 +32,8 @@ export const FUNCIONARIOS_RETENCAO = {
   386: 'Gabriel Lima',
   387: 'Kayky Cabral',
   389: 'Marcos Piazzi',
-  390: 'Pedro Guedes'
+  390: 'Pedro Guedes',
+  381: "Lucca Ramos"
 };
 
 export const ASSUNTOS_MAP = {
