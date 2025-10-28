@@ -19,9 +19,7 @@ const expedienteColaboradores = {
 
 const grupoSabado1 = [342, 343];
 const grupoSabado2 = [305, 304];
-const estagiariosSabado = {
-  // deixe vazio ou preencha caso existam estagiários com horário fixo de sábado
-};
+const estagiariosSabado = {};
 
 function saoPauloNow() {
   const str = new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" });
@@ -36,9 +34,8 @@ function dentroDoExpediente(tecnicoId) {
   const day = now.getDay(); // 0 = domingo, 6 = sábado
   const minutesNow = now.getHours() * 60 + now.getMinutes();
 
-  if (day === 0) return false; // domingo => não trabalha
+  if (day === 0) return false;
 
-  // sábado
   if (day === 6) {
     if (estagiariosSabado[tecnicoId]) {
       const hi = timeToMinutes(estagiariosSabado[tecnicoId].inicio);
@@ -56,7 +53,6 @@ function dentroDoExpediente(tecnicoId) {
     return false;
   }
 
-  // dias úteis
   const horario = expedienteColaboradores[tecnicoId];
   if (!horario) return false;
   return minutesNow >= timeToMinutes(horario.inicio) && minutesNow <= timeToMinutes(horario.fim);
@@ -111,20 +107,16 @@ export async function distribuicaoComercial(tokenArg) {
   try {
     const registros = await listarTodosChamados(token);
 
-    // map assuntos
     const respAssuntos = await axios.post(`${BASE_URL}/su_oss_assunto`, { page: "1", rp: "1000" }, {
       headers: { Authorization: token, "Content-Type": "application/json", ixcsoft: "listar" }
     });
     const assuntosMap = {};
     (respAssuntos.data?.registros || []).forEach(a => { assuntosMap[String(a.id)] = a.assunto; });
 
-    // filtrar por id_assunto = 499 e status A
     const filtrados = registros.filter(r => String(r.id_assunto) === "499" && String(r.status) === "A");
     console.log(`📌 Total chamados abertos com assunto 499: ${filtrados.length}`);
-
     if (!filtrados.length) return;
 
-    // obter funcionarios (nomes)
     const respFunc = await axios.post(`${BASE_URL}/funcionarios`, { qtype: "id", query: "0", oper: ">", page: "1", rp: "1000" }, {
       headers: { Authorization: token, "Content-Type": "application/json", ixcsoft: "listar" }
     });
@@ -132,7 +124,7 @@ export async function distribuicaoComercial(tokenArg) {
     (respFunc.data?.registros || []).forEach(f => { funcionariosMap[parseInt(f.id,10)] = f.funcionario; });
 
     const idsTecnicos = [342, 343, 304, 305];
-    const distribuicoes = {}; // { tecnicoId: [ { cliente, assunto_id } ] }
+    const distribuicoes = {};
     let indice = await carregarIndiceAtual();
     const num = idsTecnicos.length;
 
@@ -154,7 +146,6 @@ export async function distribuicaoComercial(tokenArg) {
       }
 
       const idChamado = chamado.id;
-      // buscar detalhado para garantir dados e atualizar
       try {
         const respDetal = await axios.post(`${BASE_URL}/su_oss_chamado`, { qtype: "id", query: String(idChamado), oper: "=", page: "1", rp: "1" }, {
           headers: { Authorization: token, "Content-Type": "application/json", ixcsoft: "listar" },
@@ -166,25 +157,38 @@ export async function distribuicaoComercial(tokenArg) {
           indice = (indice + 1) % num; await salvarIndiceAtual(indice);
           continue;
         }
-        const detalhado = { ...regs[0], id_tecnico: escolhido, status: "EN", setor: "32" };
 
-        // atualizar via PUT
+        const detalhado = regs[0];
+
+        // ✅ NOVA REQUISIÇÃO: POST /su_oss_chamado_alterar_setor
+        const payload = {
+          id_chamado: idChamado,
+          id_setor: "32", // mantém o mesmo setor
+          id_tecnico: escolhido,
+          id_assunto: detalhado.id_assunto,
+          status: "EN",
+          mensagem: "Encaminhado automaticamente pelo sistema comercial.",
+          id_filial: "1",
+          data: new Date().toISOString().slice(0, 19).replace("T", " ")
+        };
+
         try {
-          const respPut = await axios.put(`${BASE_URL}/su_oss_chamado/${idChamado}`, detalhado, {
-            headers: { Authorization: token, "Content-Type": "application/json" }, timeout: 10000
+          const resp = await axios.post(`${BASE_URL}/su_oss_chamado_alterar_setor`, payload, {
+            headers: { Authorization: token, "Content-Type": "application/json" },
+            timeout: 10000
           });
-          if (!(respPut.status >= 200 && respPut.status < 300)) {
-            console.error("❌ PUT retornou:", respPut.status);
-            indice = (indice + 1) % num; await salvarIndiceAtual(indice);
-            continue;
+
+          if (resp.data?.type === "success") {
+            console.log(`✅ Chamado ${idChamado} encaminhado para técnico ${escolhido}`);
+          } else {
+            console.warn(`⚠️ Falha ao encaminhar ${idChamado}:`, resp.data);
           }
         } catch (err) {
-          console.error("❌ Erro no PUT:", err.response?.status || err.message);
+          console.error(`❌ Erro ao encaminhar chamado ${idChamado}:`, err.response?.status || err.message);
           indice = (indice + 1) % num; await salvarIndiceAtual(indice);
           continue;
         }
 
-        // buscar nome do cliente
         let nomeCliente = `Cliente ${detalhado.id_cliente}`;
         try {
           const respCli = await axios.post(`${BASE_URL}/cliente`, { qtype: "id", query: String(detalhado.id_cliente), oper: "=", page: "1", rp: "1" }, {
@@ -199,11 +203,8 @@ export async function distribuicaoComercial(tokenArg) {
         if (!distribuicoes[escolhido]) distribuicoes[escolhido] = [];
         distribuicoes[escolhido].push({ cliente: nomeCliente, assunto_id: chamado.id_assunto });
 
-        // avança índice e salva
         indice = (indice + 1) % num;
         await salvarIndiceAtual(indice);
-
-        console.log(`✅ Chamado ${idChamado} encaminhado para técnico ${escolhido}`);
       } catch (err) {
         console.error("❌ Erro ao processar chamado:", err.response?.status || err.message || err);
         indice = (indice + 1) % num; await salvarIndiceAtual(indice);
@@ -211,7 +212,6 @@ export async function distribuicaoComercial(tokenArg) {
       }
     }
 
-    // 6) enviar notificações no WhatsApp (grupo) — FORMATO SOLICITADO
     for (const [tecIdStr, chamados] of Object.entries(distribuicoes)) {
       const tecId = parseInt(tecIdStr, 10);
       const nomeTec = funcionariosMap[tecId] || `Técnico ${tecId}`;
@@ -259,7 +259,6 @@ export async function contarChamadosTerceirizada(tokenArg) {
       page++;
     }
 
-    // mapa técnicoId -> nome (use os nomes que você informou)
     const tecnicos = {
       342: "Aline Lourenço de Araujo Oliveira",
       304: "Gustavo Leonidas da Silva Almeida",
@@ -273,14 +272,12 @@ export async function contarChamadosTerceirizada(tokenArg) {
     for (const chamado of todos) {
       const idTec = chamado.id_tecnico;
       const status = chamado.status;
-      // id_tecnico pode vir como string ou number — normalize
       const idTecNum = Number(idTec);
       if (tecnicos[idTecNum] && String(status) === "EN") {
         contagem[tecnicos[idTecNum]] += 1;
       }
     }
 
-    // criar mensagem formatada
     let mensagem = "📊 *Relatório Diário - Terceirizada Comercial*\n━━━━━━━━━━━━━━━━━━━━━━\n";
     const total = Object.values(contagem).reduce((s,v)=>s+v,0);
     for (const [nome, qtd] of Object.entries(contagem)) {
@@ -291,7 +288,6 @@ export async function contarChamadosTerceirizada(tokenArg) {
     mensagem += "━━━━━━━━━━━━━━━━━━━━━━\n";
     mensagem += `📦 *Total geral:* ${total} chamados encaminhados\n`;
 
-    // enviar pro grupo
     try {
       await enviarWhatsApp(WHATSAPP_GROUP_ID, mensagem.trim());
       console.log("✅ Relatório diário enviado.");

@@ -3,10 +3,10 @@ import axios from "axios";
 import { enviarWhatsApp } from "../whatsappClient.js";
 
 const BASE_URL = process.env.URL_IXC;
-export const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID_BONIFICACAO;
+export const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID_TESTE;
 
 // IDs de técnicos da rotação
-const IDS_ROTACAO = [345, 359, 337, 313, 367, 377, 307, 381, 306, 387, 389, 390];
+const IDS_ROTACAO = [345, 359, 337, 313, 367, 377, 307, 381, 306, 386, 387, 389, 390];
 
 // IDs de assuntos permitidos
 const ASSUNTOS_PERMITIDOS_IDS = [

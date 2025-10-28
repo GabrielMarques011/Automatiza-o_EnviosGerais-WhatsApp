@@ -10,13 +10,13 @@ const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID_COMERCIAL;
 const TIMEOUT = 15000;
 
 /**
- * Distribuição automatizada - Assunto 82 (Venda Avulsa)
+ * Distribuição automatizada - Assunto 82 (Troca de Plano)
  * - Pega tickets su_ticket (id_assunto=82) com su_status EP / N / S
  * - Pega su_oss_chamado (id_assunto=82) com status = "A"
  * - Se os.id_ticket === ticket.id -> busca detalhado da OS e faz PUT atualizando:
  *    - id_tecnico (number)
  *    - status: "EN"
- *    - setor: "32" (se não existir)
+ *    - setor: "32" (de acordo com nova requisição)
  * - NOTIFICAÇÃO: envia UMA única mensagem resumo no grupo com contagem por técnico + total
  */
 export async function distribuicaoTrocaPlano(tokenArg) {
@@ -47,7 +47,7 @@ export async function distribuicaoTrocaPlano(tokenArg) {
     // 1) listar tickets (su_ticket) assunto 82
     const ticketsRaw = await paginarPost("/su_ticket", { qtype: "id_assunto", query: "82", oper: "=" });
 
-    // 2) filtrar por su_status EP / N ou S e montar mapa ticketId -> id_responsavel_tecnico
+    // 2) filtrar por su_status EP / N / S e montar mapa ticketId -> id_responsavel_tecnico
     const ticketsMap = {};
     for (const t of ticketsRaw) {
       const ss = String(t.su_status || "").trim();
@@ -85,9 +85,11 @@ export async function distribuicaoTrocaPlano(tokenArg) {
       const idChamado = String(os.id);
       try {
         // buscar detalhado da OS
-        const respDetal = await axios.post(`${BASE_URL}/su_oss_chamado`, { qtype: "id", query: idChamado, oper: "=", page: "1", rp: "1" }, {
-          headers: headersList, timeout: TIMEOUT
-        });
+        const respDetal = await axios.post(
+          `${BASE_URL}/su_oss_chamado`,
+          { qtype: "id", query: idChamado, oper: "=", page: "1", rp: "1" },
+          { headers: headersList, timeout: TIMEOUT }
+        );
         const regs = respDetal.data?.registros || [];
         if (!regs.length) {
           console.warn(`❌ OS detalhada ${idChamado} não encontrada.`);
@@ -95,23 +97,27 @@ export async function distribuicaoTrocaPlano(tokenArg) {
         }
         const detalhado = { ...regs[0] };
 
-        // alterar campos essenciais para forçar atribuição
+        // ⚙️ Atualização conforme nova requisição: setor precisa ser enviado corretamente
         detalhado.id_tecnico = responsavel;
         detalhado.status = "EN";
-        detalhado.setor = "32";
+        detalhado.setor = { id: "32" }; // ✅ NOVO FORMATO: objeto setor exigido pelo IXC
 
         // função de PUT com retry simples
         async function putAtualizarOs(retries = 1) {
           try {
             const respPut = await axios.put(`${BASE_URL}/su_oss_chamado/${idChamado}`, detalhado, {
-              headers: { Authorization: token, "Content-Type": "application/json" }, timeout: TIMEOUT
+              headers: { Authorization: token, "Content-Type": "application/json" },
+              timeout: TIMEOUT,
             });
             console.log(`PUT OS ${idChamado} status HTTP: ${respPut.status}`);
             if (respPut.data) console.log("PUT response data:", JSON.stringify(respPut.data).slice(0, 1000));
             return respPut;
           } catch (err) {
             if (retries > 0) {
-              console.warn(`⚠️ PUT OS ${idChamado} falhou, tentando novamente... (${retries} left)`, err.message || err.response?.status);
+              console.warn(
+                `⚠️ PUT OS ${idChamado} falhou, tentando novamente... (${retries} left)`,
+                err.message || err.response?.status
+              );
               await new Promise(r => setTimeout(r, 800));
               return putAtualizarOs(retries - 1);
             }
@@ -133,8 +139,14 @@ export async function distribuicaoTrocaPlano(tokenArg) {
 
         // registrar distribuição para notificação
         if (!distribuicoes[String(responsavel)]) distribuicoes[String(responsavel)] = [];
-        const nomeCliente = detalhado.id_cliente ? `Cliente ${detalhado.id_cliente}` : `Cliente ${os.id_cliente || "?"}`;
-        distribuicoes[String(responsavel)].push({ cliente: nomeCliente, id_chamado: idChamado, id_ticket: idTicketDaOs });
+        const nomeCliente = detalhado.id_cliente
+          ? `Cliente ${detalhado.id_cliente}`
+          : `Cliente ${os.id_cliente || "?"}`;
+        distribuicoes[String(responsavel)].push({
+          cliente: nomeCliente,
+          id_chamado: idChamado,
+          id_ticket: idTicketDaOs,
+        });
 
         console.log(`✅ OS ${idChamado} (ticket ${idTicketDaOs}) atribuída ao técnico ${responsavel}`);
       } catch (err) {
@@ -151,10 +163,14 @@ export async function distribuicaoTrocaPlano(tokenArg) {
     // 5) obter lista de funcionários (nomes)
     let funcionariosMap = {};
     try {
-      const respFunc = await axios.post(`${BASE_URL}/funcionarios`, { qtype: "id", query: "0", oper: ">", page: "1", rp: "1000" }, {
-        headers: headersList, timeout: TIMEOUT
+      const respFunc = await axios.post(
+        `${BASE_URL}/funcionarios`,
+        { qtype: "id", query: "0", oper: ">", page: "1", rp: "1000" },
+        { headers: headersList, timeout: TIMEOUT }
+      );
+      (respFunc.data?.registros || []).forEach(f => {
+        funcionariosMap[String(f.id)] = f.funcionario;
       });
-      (respFunc.data?.registros || []).forEach(f => { funcionariosMap[String(f.id)] = f.funcionario; });
     } catch (err) {
       console.warn("⚠️ Não foi possível obter lista de funcionários:", err.message || err.response?.status);
     }
@@ -162,7 +178,6 @@ export async function distribuicaoTrocaPlano(tokenArg) {
     // 6) MONTAR UMA ÚNICA MENSAGEM RESUMO e enviar
     const linhas = [];
     let total = 0;
-    // ordenar por nome (opcional) — vamos construir um array de { nome, qtd }
     const resumoArray = Object.entries(distribuicoes).map(([tecId, tarefas]) => {
       const nome = funcionariosMap[tecId] || `Técnico ${tecId}`;
       const qtd = tarefas.length;
@@ -170,7 +185,6 @@ export async function distribuicaoTrocaPlano(tokenArg) {
       return { tecId, nome, qtd };
     });
 
-    // opcional: ordenar por nome alfabeticamente
     resumoArray.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }));
 
     for (const item of resumoArray) {
@@ -178,7 +192,7 @@ export async function distribuicaoTrocaPlano(tokenArg) {
       linhas.push(`👤 ${item.nome.split(" ")[0]}: ${item.qtd} ${plural}`);
     }
 
-    let mensagem = `⚠️ Distribuição Automática - OS Troca de Plano  (Assunto 82) ⚠️\n\n`;
+    let mensagem = `⚠️ Distribuição Automática - OS Troca de Plano (Assunto 82) ⚠️\n\n`;
     mensagem += linhas.join("\n") + `\n\n`;
     mensagem += `📦 Total geral: ${total} chamados encaminhados`;
 
@@ -189,9 +203,9 @@ export async function distribuicaoTrocaPlano(tokenArg) {
       console.error("❌ Erro ao enviar mensagem resumo WhatsApp:", err.message || err);
     }
 
-    console.log("⏱️ Rotina distribuicaoVendaAvulsa concluída.");
+    console.log("⏱️ Rotina distribuicaoTrocaPlano concluída.");
   } catch (err) {
-    console.error("❌ Erro geral em distribuicaoVendaAvulsa:", err.response?.status || err.message || err);
+    console.error("❌ Erro geral em distribuicaoTrocaPlano:", err.response?.status || err.message || err);
   }
 }
 

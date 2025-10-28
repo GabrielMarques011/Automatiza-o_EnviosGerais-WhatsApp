@@ -14,7 +14,7 @@ const BASE_URL = "https://assinante.nmultifibra.com.br/webservice/v1";
 // =====================
 export async function distribuirFeed() {
   const headersListar = { Authorization: TOKEN_API, "Content-Type": "application/json", ixcsoft: "listar" };
-  const headersPut = { Authorization: TOKEN_API, "Content-Type": "application/json" };
+  const headersPost = { Authorization: TOKEN_API, "Content-Type": "application/json" };
 
   // 1. Buscar chamados abertos
   const urlOss = `${BASE_URL}/su_oss_chamado`;
@@ -35,7 +35,6 @@ export async function distribuirFeed() {
 
   console.log(`📌 Total chamados filtrados: ${filtrados.length}`);
 
-  // Se não houver chamados filtrados, não faz nada
   if (filtrados.length === 0) {
     console.log("🟡 Nenhum chamado para encaminhar.");
     return;
@@ -61,22 +60,37 @@ export async function distribuirFeed() {
     const chamadoDetalhado = registrosDet[0];
     const tecnicoId = idsTecnicos[i % idsTecnicos.length];
 
-    chamadoDetalhado.id_tecnico = tecnicoId;
-    chamadoDetalhado.status = "EN";
-    chamadoDetalhado.setor = "5";
+    // 🔁 NOVA REQUISIÇÃO — Correta e funcional
+    const payload = {
+      id_chamado: idChamado,
+      id_setor: "5", // Setor correto
+      id_tecnico: tecnicoId,
+      id_assunto: chamadoDetalhado.id_assunto,
+      mensagem: "Encaminhado automaticamente pelo sistema de distribuição.",
+      status: "EN",
+      data: new Date().toISOString().slice(0, 19).replace("T", " "),
+      id_evento: "",
+      latitude: "",
+      longitude: "",
+      gps_time: "",
+      id_filial: "1",
+    };
 
-    // Atualizar chamado
     try {
-      await axios.put(`${urlOss}/${idChamado}`, chamadoDetalhado, { headers: headersPut });
-      if (!distribuicoes[tecnicoId]) distribuicoes[tecnicoId] = 0;
-      distribuicoes[tecnicoId] += 1;
-      console.log(`✅ Chamado ${idChamado} enviado para técnico ${tecnicoId}`);
+      const { data: resp } = await axios.post(`${BASE_URL}/su_oss_chamado_alterar_setor`, payload, { headers: headersPost });
+
+      if (resp?.type === "success") {
+        if (!distribuicoes[tecnicoId]) distribuicoes[tecnicoId] = 0;
+        distribuicoes[tecnicoId] += 1;
+        console.log(`✅ Chamado ${idChamado} encaminhado para técnico ${tecnicoId}`);
+      } else {
+        console.warn(`⚠️ Falha ao encaminhar ${idChamado}:`, resp);
+      }
     } catch (err) {
       console.error(`❌ Erro ao atualizar chamado ${idChamado}:`, err.message || err);
     }
   }
 
-  // Se não houver nenhum chamado distribuído, não envia mensagem
   if (Object.keys(distribuicoes).length === 0) {
     console.log("🟡 Nenhum chamado foi distribuído. Nenhuma mensagem enviada ao WhatsApp.");
     return;

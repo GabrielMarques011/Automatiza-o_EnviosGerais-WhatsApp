@@ -4,6 +4,7 @@ import { client } from "./modules/whatsappClient.js";
 import { retencao } from "./modules/retencao.js";
 import { upgrade } from "./modules/upgrade.js";
 import { solucionados } from "./modules/solucionado.js";
+import { solucionados3Meses } from "./modules/solucionados3meses.js"; // ← Importada corretamente
 
 import { envioReag } from "./modules/suporte/envioReag.js";
 import { envioSIP } from "./modules/suporte/envioSIP.js";
@@ -13,7 +14,6 @@ import { distribuirFeed } from "./modules/suporte/envioFeed.js";
 
 import { contarChamadosTerceirizada, distribuicaoComercial } from "./modules/comercial/envioCom.js";
 import { gerarAgendaInstalacoesUnificada } from "./modules/agenda/instalacao.js";
-import { contarFinalizados } from "./modules/suporte/contarFinalizados.js";
 import distribuicaoVendaAvulsa from "./modules/comercial/distribuicaoVendaAvulsa.js";
 import distribuicaoTrocaPlano from "./modules/comercial/distribuicaoTrocaPlano.js";
 import { envioConfirmacao } from "./modules/suporte/envioConfirmacao.js";
@@ -23,13 +23,11 @@ dotenv.config();
 client.on("ready", async () => {
   console.log("🚀 Bot ativo e pronto!");
   const token = process.env.TOKEN_API;
+  
+  // Teste inicial
   //await executarRotinaEnvios(token);
-  await executarRotinaCompleta(token);
   //await executarRotinaComercial(token);
   //await executarRotinaFeed(token);
-  //await executarRotinaAgenda(token);
-  
-  await testes(token);
 
   // Executar rotina completa 1-1h
   schedule.scheduleJob("0 6-21 * * *", async () => {
@@ -54,20 +52,15 @@ client.on("ready", async () => {
     console.log("🔄 Executando rotinas de envio (Ter/Reag/PPPoE/SIP)...");
     await executarRotinaEnvios(token);
     await executarRotinaComercial(token);
-
-    await testes(token);
   });
 });
 
 async function executarRotinaCompleta(token) {
   try {
-    
     await retencao(token);
     await upgrade(token);
     await solucionados(token);
-
     await contarChamadosTerceirizada(token);
-
   } catch (err) {
     console.error("❌ Erro na rotina completa:", err.message);
   }
@@ -75,15 +68,13 @@ async function executarRotinaCompleta(token) {
 
 async function executarRotinaEnvios(token) {
   try {
-
     await envioTer();
     await envioReag(token);
     await envioPPPoE(token);
     await envioSIP(token);
-    
+    await envioConfirmacao(token);
     await distribuicaoVendaAvulsa();
     await distribuicaoTrocaPlano();
-
   } catch (err) {
     console.error("❌ Erro na rotina de envios:", err.message);
   }
@@ -91,40 +82,24 @@ async function executarRotinaEnvios(token) {
 
 async function executarRotinaComercial(token) {
   try {
-    
     await distribuicaoComercial(token);
-
   } catch (err) {
-    console.error("❌ Erro na rotina completa:", err.message);
+    console.error("❌ Erro na rotina comercial:", err.message);
   }
 }
 
 async function executarRotinaFeed(token) {
   try {
-    
     await distribuirFeed(token);
-
   } catch (err) {
-    console.error("❌ Erro na rotina completa:", err.message);
+    console.error("❌ Erro na rotina feed:", err.message);
   }
 }
 
 async function executarRotinaAgenda(token) {
   try {
-
     await gerarAgendaInstalacoesUnificada();
-
   } catch (err) {
-    console.error("❌ Erro na rotina completa:", err.message);
-  }
-}
-
-async function testes(token) {
-  try {
-
-    await envioConfirmacao();
-
-  } catch (err) {
-    console.error("❌ Erro na rotina completa:", err.message);
+    console.error("❌ Erro na rotina agenda:", err.message);
   }
 }

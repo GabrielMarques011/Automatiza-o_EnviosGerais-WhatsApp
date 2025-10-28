@@ -6,30 +6,32 @@ import { enviarWhatsApp } from "../whatsappClient.js";
 export const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID_DEMANDAS;
 
 const BASE_URL = process.env.URL_IXC;
-const IDS_ROTACAO = [345, 359, 337, 313, 367, 377, 307, 381, 306, 386, 387];
+const IDS_ROTACAO = [345, 359, 337, 313, 367, 307, 381, 386, 387, 389, 390];
 
-// Expediente técnico
 const expedienteColaboradores = {
   307: { inicio: "06:00", fim: "16:00" },
   337: { inicio: "06:00", fim: "16:00" },
   367: { inicio: "11:00", fim: "21:00" },
   345: { inicio: "06:00", fim: "16:00" },
   359: { inicio: "06:00", fim: "13:00" },
-  377: { inicio: "10:00", fim: "16:00" },
   313: { inicio: "11:00", fim: "21:00" },
   381: { inicio: "06:00", fim: "11:00" },
-  306: { inicio: "17:00", fim: "21:00" },
-  386: { inicio: "16:00", fim: "21:00" },
-  387: { inicio: "06:00", fim: "13:00" }
+  387: { inicio: "06:00", fim: "13:00" }, //Kayky
+  386: { inicio: "16:00", fim: "21:00" }, //Lima
+  389: { inicio: "16:00", fim: "21:00" }, //Marcos
+  390: { inicio: "15:00", fim: "19:00" }, //Pedro
+  //306: { inicio: "17:00", fim: "21:00" } //Marques
 };
 
-// Sábado
 const estagiariosSabado = {
-  377: { inicio: "06:00", fim: "13:00" },
+  386: { inicio: "11:00", fim: "17:00" },
+  389: { inicio: "11:00", fim: "17:00" },
+  390: { inicio: "11:00", fim: "17:00" },
+  387: { inicio: "06:00", fim: "13:00" },
   381: { inicio: "06:00", fim: "11:00" }
 };
 const grupoSabado1 = [313, 307];
-const grupoSabado2 = [381, 337];
+const grupoSabado2 = [381, 337, 367];
 
 function saoPauloNow() {
   const str = new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" });
@@ -146,7 +148,68 @@ export async function envioSIP(tokenArg) {
       detalhado.status = "EN";
       detalhado.setor = "5";
 
-      await axios.put(`${BASE_URL}/su_oss_chamado/${idChamado}`, detalhado, { headers: { Authorization: token, "Content-Type": "application/json" } });
+      // ======= substituição: usar POST /su_oss_chamado_alterar_setor =======
+      try {
+        const payload = {
+          id_chamado: String(idChamado),
+          id_setor: "5",
+          id_tecnico: String(escolhido),
+          id_assunto: String(detalhado.id_assunto || chamado.id_assunto),
+          mensagem: "Encaminhado automaticamente pelo sistema de distribuição.",
+          status: "EN",
+          data: new Date().toISOString().slice(0, 19).replace("T", " "),
+          id_evento: "",
+          latitude: "",
+          longitude: "",
+          gps_time: "",
+          id_filial: String(detalhado.id_filial || chamado.id_filial || "1")
+        };
+
+        // monta Authorization Basic: prefere IXC_USER/IXC_PASS, senão utiliza token em base64
+        let authHeader = token;
+        const ixUser = process.env.IXC_USER;
+        const ixPass = process.env.IXC_PASS;
+        if (ixUser && ixPass) {
+          const b64 = Buffer.from(`${ixUser}:${ixPass}`).toString("base64");
+          authHeader = `Basic ${b64}`;
+        } else if (!token.startsWith("Basic ") && !token.startsWith("Bearer ")) {
+          authHeader = `Basic ${token}`;
+        }
+
+        const headersSetor = {
+          Authorization: authHeader,
+          "Content-Type": "application/json"
+        };
+
+        const resp = await axios.post(`${BASE_URL}/su_oss_chamado_alterar_setor`, payload, { headers: headersSetor, timeout: 15000 });
+
+        if (!(resp.status >= 200 && resp.status < 300) || resp.data?.type === "error") {
+          console.error("❌ su_oss_chamado_alterar_setor retornou erro:", resp.status, resp.data);
+          indice = (indice + 1) % idsTecnicos.length; await salvarIndiceAtual(indice);
+          continue;
+        }
+
+        // re-fetch para confirmar alteração
+        try {
+          const check = await axios.post(`${BASE_URL}/su_oss_chamado`, { qtype: "id", query: String(idChamado), oper: "=", page: "1", rp: "1" }, { headers: { Authorization: token, "Content-Type": "application/json", ixcsoft: "listar" } });
+          const recsCheck = check.data?.registros || [];
+          const novo = recsCheck[0];
+          console.log(`Status após alterar_setor (re-fetch) para ${idChamado}:`, novo?.status, "id_tecnico:", novo?.id_tecnico);
+          if (String(novo?.status) !== "EN" && Number(novo?.id_tecnico) !== escolhido) {
+            console.warn(`⚠ Alteração feita, mas status/id_tecnico não parecem atualizados conforme esperado para ${idChamado}. Resposta do endpoint:`, resp.data);
+          }
+        } catch (errCheck) {
+          console.warn("⚠ Não foi possível re-fetch após alterar_setor:", errCheck.response?.status || errCheck.message);
+        }
+
+      } catch (err) {
+        console.error("❌ Erro ao alterar setor/status (clean):", err.response?.status || err.message || err);
+        indice = (indice + 1) % idsTecnicos.length; await salvarIndiceAtual(indice);
+        continue;
+      }
+      // ======= fim substituição =======
+
+      console.log(`✅ Chamado ${idChamado} encaminhado para técnico ${escolhido}`);
 
       // Buscar nome do cliente
       let nomeCliente = `Cliente ${detalhado.id_cliente}`;

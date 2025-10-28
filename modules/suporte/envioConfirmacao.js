@@ -7,28 +7,31 @@ import { enviarWhatsApp } from "../whatsappClient.js";
 export const WHATSAPP_GROUP_ID = process.env.WHATSAPP_GROUP_ID_DEMANDAS;
 
 const BASE_URL = process.env.URL_IXC;
-const IDS_ROTACAO = [345, 359, 337, 313, 367, 377, 307, 381, 306, 386, 387];
+const IDS_ROTACAO = [345, 359, 337, 313, 367, 307, 381, 386, 387, 389, 390];
 
-// expediente (mesma lógica que envioTer)
 const expedienteColaboradores = {
   307: { inicio: "06:00", fim: "16:00" },
   337: { inicio: "06:00", fim: "16:00" },
   367: { inicio: "11:00", fim: "21:00" },
   345: { inicio: "06:00", fim: "16:00" },
   359: { inicio: "06:00", fim: "13:00" },
-  377: { inicio: "10:00", fim: "16:00" },
   313: { inicio: "11:00", fim: "21:00" },
   381: { inicio: "06:00", fim: "11:00" },
-  306: { inicio: "17:00", fim: "21:00" },
+  387: { inicio: "06:00", fim: "13:00" },
   386: { inicio: "16:00", fim: "21:00" },
-  387: { inicio: "06:00", fim: "13:00" }
+  389: { inicio: "16:00", fim: "21:00" },
+  390: { inicio: "15:00", fim: "19:00" }
 };
+
 const estagiariosSabado = {
-  377: { inicio: "06:00", fim: "13:00" },
+  386: { inicio: "11:00", fim: "17:00" },
+  389: { inicio: "11:00", fim: "17:00" },
+  390: { inicio: "11:00", fim: "17:00" },
+  387: { inicio: "06:00", fim: "13:00" },
   381: { inicio: "06:00", fim: "11:00" }
 };
 const grupoSabado1 = [313, 307];
-const grupoSabado2 = [381, 337];
+const grupoSabado2 = [381, 337, 367];
 
 function saoPauloNow() {
   const str = new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" });
@@ -65,7 +68,6 @@ function dentroDoExpediente(tecnicoId) {
 }
 
 async function carregarIndiceAtual() {
-  // usando o mesmo arquivo do PPPoE (rodizio_index.txt) conforme base
   const file = path.resolve(process.cwd(), "rodizio_index.txt");
   try {
     const txt = await fs.readFile(file, "utf8");
@@ -87,18 +89,12 @@ function maskToken(t) {
 
 async function tryListWithToken(url, body, token) {
   const headers = (v) => ({ Authorization: v, "Content-Type": "application/json", ixcsoft: "listar" });
-  // try raw token first, then Bearer <token>
   try {
     return await axios.post(url, body, { headers: headers(token) });
   } catch (err) {
     const status = err.response?.status;
-    // if 401, try with Bearer prefix
     if (status === 401) {
-      try {
-        return await axios.post(url, body, { headers: headers(`Bearer ${token}`) });
-      } catch (err2) {
-        throw err2;
-      }
+      return await axios.post(url, body, { headers: headers(`Bearer ${token}`) });
     }
     throw err;
   }
@@ -116,9 +112,7 @@ export async function envioConfirmacao(tokenArg) {
   }
 
   try {
-    // 1) listar OSS abertos (pegando registros amplos para filtrar localmente)
     const urlOss = `${BASE_URL}/su_oss_chamado`;
-    // já pedimos por assunto 170 (pode ajustar page/rp se quiser mais)
     const bodyOss = { qtype: "id_assunto", query: "170", oper: "=", page: "1", rp: "1000" };
 
     let resOss;
@@ -130,7 +124,6 @@ export async function envioConfirmacao(tokenArg) {
     }
     const registrosOss = resOss.data?.registros || [];
 
-    // 2) assuntos map (para obter nome do assunto)
     const urlAssuntos = `${BASE_URL}/su_oss_assunto`;
     let respAsc;
     try {
@@ -142,7 +135,6 @@ export async function envioConfirmacao(tokenArg) {
     const assuntosMap = {};
     (respAsc.data?.registros || []).forEach(a => { assuntosMap[String(a.id)] = a.assunto; });
 
-    // 3) filtrar status "AN" (Análise) e técnico "306" — mantendo id_assunto = 170
     const filtrados = registrosOss.filter(o =>
       String(o.id_assunto) === "170" &&
       String(o.status) === "AN" &&
@@ -152,7 +144,6 @@ export async function envioConfirmacao(tokenArg) {
     console.log(`📌 Total chamados em análise (assunto 170 / técnico 306): ${filtrados.length}`);
     if (!filtrados.length) return;
 
-    // 4) buscar funcionarios (nomes)
     const urlFunc = `${BASE_URL}/funcionarios`;
     const bodyFunc = { qtype: "id", query: "0", oper: ">", page: "1", rp: "1000" };
     let funcionariosMap = {};
@@ -163,13 +154,11 @@ export async function envioConfirmacao(tokenArg) {
       console.warn("⚠️ Não foi possível obter lista de funcionarios:", err.response?.status || err.message);
     }
 
-    // 5) rodízio e encaminhamento (mesma lógica do PPPoE)
     let indice = await carregarIndiceAtual();
     const num = IDS_ROTACAO.length;
-    const distribuicoes = {}; // { tecId: [ { cliente, assunto_id } ] }
+    const distribuicoes = {};
 
     for (const chamado of filtrados) {
-      // encontrar técnico disponível
       let tentativas = 0;
       let escolhido = null;
       while (tentativas < num) {
@@ -187,7 +176,6 @@ export async function envioConfirmacao(tokenArg) {
       }
 
       const idChamado = chamado.id;
-      // pegar detalhado
       const busca = { qtype: "id", query: String(idChamado), oper: "=", page: "1", rp: "1" };
       let regsDetalhado;
       try {
@@ -200,45 +188,34 @@ export async function envioConfirmacao(tokenArg) {
       }
       if (!regsDetalhado.length) { indice = (indice + 1) % num; await salvarIndiceAtual(indice); continue; }
 
-      const detalhado = { ...regsDetalhado[0], id_tecnico: escolhido, status: "EN", setor: "5" };
-      // PUT update (use token raw; alguns endpoints aceitam, se falhar, tenta com Bearer)
+      const detalhado = regsDetalhado[0];
+
+      // ✅ NOVA REQUISIÇÃO (endpoint correto)
+      const payload = {
+        id_chamado: idChamado,
+        id_setor: "5", // Setor correto
+        id_tecnico: escolhido,
+        id_assunto: detalhado.id_assunto,
+        status: "EN",
+        mensagem: "Encaminhado automaticamente pelo sistema de confirmação.",
+        id_filial: "1",
+        data: new Date().toISOString().slice(0, 19).replace("T", " ")
+      };
+
       try {
-        const respPut = await axios.put(`${BASE_URL}/su_oss_chamado/${idChamado}`, detalhado, {
+        const resp = await axios.post(`${BASE_URL}/su_oss_chamado_alterar_setor`, payload, {
           headers: { Authorization: token, "Content-Type": "application/json" }
         });
-        // se 2xx ok
-        if (!(respPut.status >= 200 && respPut.status < 300)) {
-          console.error("❌ PUT retornou:", respPut.status);
-          indice = (indice + 1) % num; await salvarIndiceAtual(indice);
-          continue;
+
+        if (resp.data?.type === "success") {
+          console.log(`✅ Chamado ${idChamado} encaminhado para técnico ${escolhido}`);
+        } else {
+          console.warn(`⚠️ Falha ao encaminhar ${idChamado}:`, resp.data);
         }
       } catch (err) {
-        // tentar com Bearer se 401
-        if (err.response?.status === 401) {
-          try {
-            const respPut2 = await axios.put(`${BASE_URL}/su_oss_chamado/${idChamado}`, detalhado, {
-              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-            });
-            if (!(respPut2.status >= 200 && respPut2.status < 300)) {
-              console.error("❌ PUT com Bearer retornou:", respPut2.status);
-              indice = (indice + 1) % num; await salvarIndiceAtual(indice);
-              continue;
-            }
-          } catch (err2) {
-            console.error("❌ Erro no PUT (tentativa Bearer):", err2.response?.status || err2.message);
-            indice = (indice + 1) % num; await salvarIndiceAtual(indice);
-            continue;
-          }
-        } else {
-          console.error("❌ Erro no PUT:", err.response?.status || err.message);
-          indice = (indice + 1) % num; await salvarIndiceAtual(indice);
-          continue;
-        }
+        console.error(`❌ Erro ao encaminhar chamado ${idChamado}:`, err.response?.status || err.message);
       }
 
-      console.log(`✅ Chamado ${idChamado} encaminhado para técnico ${escolhido}`);
-
-      // buscar cliente para montar mensagem (mesma chamada do PPPoE)
       let nomeCliente = `Cliente ${detalhado.id_cliente}`;
       try {
         const respCli = await tryListWithToken(`${BASE_URL}/cliente`, { qtype: "id", query: String(detalhado.id_cliente), oper: "=", page: "1", rp: "1" }, token);
@@ -251,12 +228,10 @@ export async function envioConfirmacao(tokenArg) {
       if (!distribuicoes[escolhido]) distribuicoes[escolhido] = [];
       distribuicoes[escolhido].push({ cliente: nomeCliente, assunto_id: detalhado.id_assunto });
 
-      // avança índice e salva
       indice = (indice + 1) % num;
       await salvarIndiceAtual(indice);
-    } // end for chamados
+    }
 
-    // 6) enviar notificações no WhatsApp (grupo) — FORMATO IGUAL AO PPPoE, MAS TÍTULO ALTERADO
     for (const [tecIdStr, chamados] of Object.entries(distribuicoes)) {
       const tecId = parseInt(tecIdStr, 10);
       const nomeTec = funcionariosMap[tecId] || `Técnico ${tecId}`;
