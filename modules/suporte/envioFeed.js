@@ -41,7 +41,7 @@ export async function distribuirFeed() {
   }
 
   // 3. Técnicos
-  const idsTecnicos = [345, 359, 337, 313, 367, 377, 307, 381, 386, 387, 389, 390];
+  const idsTecnicos = [345, 359, 337, 313, 367, 307, 381, 386, 387, 389, 390];
   const distribuicoes = {};
 
   for (let i = 0; i < filtrados.length; i++) {
@@ -60,10 +60,9 @@ export async function distribuirFeed() {
     const chamadoDetalhado = registrosDet[0];
     const tecnicoId = idsTecnicos[i % idsTecnicos.length];
 
-    // 🔁 NOVA REQUISIÇÃO — Correta e funcional
     const payload = {
       id_chamado: idChamado,
-      id_setor: "5", // Setor correto
+      id_setor: "5",
       id_tecnico: tecnicoId,
       id_assunto: chamadoDetalhado.id_assunto,
       mensagem: "Encaminhado automaticamente pelo sistema de distribuição.",

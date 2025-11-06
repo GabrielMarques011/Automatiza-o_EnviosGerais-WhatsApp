@@ -14,11 +14,12 @@ const expedienteColaboradores = {
   342: { inicio: "06:00", fim: "20:00" },
   343: { inicio: "06:00", fim: "20:00" },
   304: { inicio: "06:00", fim: "20:00" },
-  305: { inicio: "06:00", fim: "20:00" }
+  //305: { inicio: "06:00", fim: "20:00" }
+  268: { inicio: "08:00", fim: "20:00" }
 };
 
 const grupoSabado1 = [342, 343];
-const grupoSabado2 = [305, 304];
+const grupoSabado2 = [268, 304];
 const estagiariosSabado = {};
 
 function saoPauloNow() {
@@ -123,7 +124,7 @@ export async function distribuicaoComercial(tokenArg) {
     const funcionariosMap = {};
     (respFunc.data?.registros || []).forEach(f => { funcionariosMap[parseInt(f.id,10)] = f.funcionario; });
 
-    const idsTecnicos = [342, 343, 304, 305];
+    const idsTecnicos = [342, 343, 304, 268]; //305 removido
     const distribuicoes = {};
     let indice = await carregarIndiceAtual();
     const num = idsTecnicos.length;
@@ -262,7 +263,8 @@ export async function contarChamadosTerceirizada(tokenArg) {
     const tecnicos = {
       342: "Aline Lourenço de Araujo Oliveira",
       304: "Gustavo Leonidas da Silva Almeida",
-      305: "Luccas de Andrade Pires",
+      //305: "Luccas de Andrade Pires",
+      268: "Tamires Cavalcante Alencar",
       343: "Rennan Sampaio Taioqui"
     };
 

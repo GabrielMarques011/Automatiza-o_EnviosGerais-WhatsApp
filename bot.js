@@ -17,6 +17,7 @@ import { gerarAgendaInstalacoesUnificada } from "./modules/agenda/instalacao.js"
 import distribuicaoVendaAvulsa from "./modules/comercial/distribuicaoVendaAvulsa.js";
 import distribuicaoTrocaPlano from "./modules/comercial/distribuicaoTrocaPlano.js";
 import { envioConfirmacao } from "./modules/suporte/envioConfirmacao.js";
+import { alertaChamadosRecentes } from "./modules/atendimentos/alertaChamados.js";
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ client.on("ready", async () => {
   //await executarRotinaEnvios(token);
   //await executarRotinaComercial(token);
   //await executarRotinaFeed(token);
+  await alertaChamadosRecentes();
 
   // Executar rotina completa 1-1h
   schedule.scheduleJob("0 6-21 * * *", async () => {
@@ -75,6 +77,8 @@ async function executarRotinaEnvios(token) {
     await envioConfirmacao(token);
     await distribuicaoVendaAvulsa();
     await distribuicaoTrocaPlano();
+
+    //await alertaChamadosRecentes();
   } catch (err) {
     console.error("❌ Erro na rotina de envios:", err.message);
   }
